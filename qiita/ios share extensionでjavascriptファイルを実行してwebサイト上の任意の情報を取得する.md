@@ -1,0 +1,105 @@
+#  はじめに
+iosのshare extension機能では、共有時にjavascriptファイルを実行してデフォルトでは取得できない様々な情報を取得し、アプリに保存することができます。
+
+[appleの公式ドキュメント](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/ExtensionScenarios.html)にもその方法は書いてあるのですが、objective-Cのコードしか書かれておらず、ネット上にある情報も古いものが多かったので、最新の環境(Swift5・xcode11)で動作するコードをメモしておきます。
+
+※share extensionの基本機能については実装済みと仮定します。
+#  jsファイルをプロジェクトに追加
+今回はGetData.jsというファイルを使用します。
+<img width="215" alt="スクリーンショット 2019-09-23 1.35.13.png" src="https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/455240/ead0a6ee-1e9c-1c50-9903-539212ebb1a5.png">
+
+#  info.plistの編集
+info.plistのNSExtensionActivationRuleと同じ階層にNSExtensionJavaScriptPreprocessingFileと JSファイル名を追加します。
+<img width="640" alt="スクリーンショット 2019-09-23 1.36.36.png" src="https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/455240/b36f152b-025a-9972-fb44-0f8be9153b74.png">
+
+#  jsファイルの編集
+とりあえずページのURLとタイトルを取得してみます。なおfinalizeという関数はなくても動作しました(よくわかりません)。
+
+```javascript:GetData.js
+var MyPreprocessor = function() {};
+
+MyPreprocessor.prototype = {
+    run: function(arguments) {
+        arguments.completionFunction({"url": document.URL, "title": document.title});
+    },
+    
+    finalize: function(arguments) {
+    }
+};
+
+var ExtensionPreprocessingJS = new MyPreprocessor;
+
+```
+#  ShareViewController.swiftの編集
+
+```swift:ShareViewController.swift
+override func isContentValid() -> Bool {
+    return true
+}
+
+override func didSelectPost() {
+  for item: Any in self.extensionContext!.inputItems {
+    let inputItem = item as! NSExtensionItem
+
+    for itemProvider : NSItemProvider in inputItem.attachments! {
+        if itemProvider.hasItemConformingToTypeIdentifier("public.data") {
+          itemProvider.loadItem(forTypeIdentifier: "public.data", options: nil, completionHandler: {
+                  (item, error) in
+
+            if let dictionary = item as? NSDictionary {
+              DispatchQueue.main.async(execute: { () -> Void in
+                let results = dictionary[NSExtensionJavaScriptPreprocessingResultsKey] as! NSDictionary
+
+                print(results["url"])//取得したURL
+                print(results["title"])//取得したページのタイトル
+
+                //このデータをUserDefaultsやCoreDataでアプリと共有する
+              })
+             }
+          })
+        }
+     }
+  }
+  self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+}
+
+override func configurationItems() -> [Any]! {
+    return []
+}
+```
+
+#  その他いろいろなデータの取得例
+
+```javascript:GetData.js
+var MyPreprocessor = function() {};
+
+MyPreprocessor.prototype = {
+    run: function(arguments) {
+        //現在のスクロール位置を取得  
+        var positionTop = String(Math.max(window.pageYOffset, document.documentElement.scrollTop, document.body.scrollTop));
+        
+        //動画の現時点での再生時間を取得
+        var htmlVideoPlayer = document.getElementsByTagName('video')[0];
+        var currentTimeAtThisVideo = String(parseInt(htmlVideoPlayer.currentTime));
+
+        arguments.completionFunction({"positionTop": positionTop, "currentTimeAtThisVideo": currentTimeAtThisVideo});
+    },
+    
+    finalize: function(arguments) {
+    }
+};
+
+var ExtensionPreprocessingJS = new MyPreprocessor;
+
+```
+
+#  おわりに
+上記の方法を利用して[Shiori(webにしおりをはさめるアプリ)](https://apps.apple.com/jp/app/shiori-web-for-safari/id1480539987)というアプリを開発しました。読んでいる最中の記事や、見ている最中の動画をそのままの状態で記録し、いつでも再開できるアプリです。ぜひご利用ください。
+[<img width="571" alt="スクリーンショット 2019-10-17 20.09.27.png" src="https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/455240/4e4b8305-8846-6072-95b5-7c2d54e80ae0.png">](https://apps.apple.com/jp/app/shiori-web-for-safari/id1480539987)
+
+
+#  参考
+* 
+ [appleのドキュメント](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/ExtensionScenarios.html)
+*  https://stackoverflow.com/questions/33205158/access-webpage-properties-in-share-extension)
+*  http://swift-salaryman.com/appextensions5.php
